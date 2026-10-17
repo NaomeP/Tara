@@ -1,6 +1,7 @@
 import dotenv from 'dotenv';
 dotenv.config();
 import express from 'express';
+import path from 'node:path';
 import helmet from 'helmet';
 import cors from 'cors';
 import rateLimit from 'express-rate-limit';
@@ -38,7 +39,7 @@ async function createCustomerNotification(client,authUserId,title,body,orderId){
 
 app.disable('x-powered-by');
 app.use(helmet({ crossOriginResourcePolicy: { policy: 'cross-origin' } }));
-app.use(cors({ origin: (process.env.CLIENT_ORIGIN || 'http://localhost:5173').split(',').map(x => x.trim()), credentials: true }));
+app.use(cors({ origin: [...(process.env.CLIENT_ORIGIN || 'http://localhost:5173').split(',').map(x => x.trim()), process.env.RENDER_EXTERNAL_URL].filter(Boolean), credentials: true }));
 app.use('/api/payments/webhook', express.raw({ type: 'application/json', limit: '100kb' }));
 app.use(express.json({ limit: '2mb' }));
 app.use('/api', rateLimit({ windowMs: 60_000, limit: 180, standardHeaders: 'draft-8', legacyHeaders: false }));
@@ -326,6 +327,9 @@ app.post('/api/payments/webhook',asyncRoute(async(req,res)=>{
  res.json({received:true});
 }));
 
+const frontendDirectory=path.resolve('dist');
+app.use(express.static(frontendDirectory,{index:false,maxAge:process.env.NODE_ENV==='production'?'1h':0}));
+app.get(/^(?!\/api(?:\/|$)).*/,(_req,res,next)=>res.sendFile(path.join(frontendDirectory,'index.html'),error=>{if(error)next(error);}));
 app.use((err,_req,res,_next)=>{if(err instanceof z.ZodError)return res.status(400).json({error:'Please check the submitted details.',details:err.issues.map(i=>({path:i.path.join('.'),message:i.message}))});console.error('Unhandled API error:',err.code||'UNKNOWN',err.message);if(err.code==='28P01')return res.status(503).json({error:'Neon rejected the database password. Update DATABASE_URL using the current production connection string.'});if(isTransientDatabaseError(err)||/connection timeout|connection terminated due to connection timeout/i.test(err.message||''))return res.status(503).json({error:'The store database is temporarily unavailable. Your order was not placed. Please try again shortly.'});res.status(err.status||500).json({error:err.status?err.message:'Something went wrong. Please try again.'});});
 const server=app.listen(port,()=>console.log(`Thara API listening on http://localhost:${port}`));
 const expiryTimer=setInterval(expirePendingPayments,60_000);expiryTimer.unref();
