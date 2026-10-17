@@ -3,7 +3,7 @@ services:
     name: thara-storefront
     runtime: node
     plan: free
-    buildCommand: pnpm install --frozen-lockfile && pnpm build
+    buildCommand: pnpm install --frozen-lockfile --prod=false && pnpm build
     startCommand: pnpm start:api
     healthCheckPath: /api/health
     envVars:
