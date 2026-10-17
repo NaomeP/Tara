@@ -1,0 +1,12 @@
+{
+  "name": "Thara — A little more you",
+  "short_name": "Thara",
+  "description": "Thoughtful Indian fashion for every day.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f8f7f2",
+  "theme_color": "#f8f7f2",
+  "icons": [
+    { "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}
