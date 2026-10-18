@@ -15,6 +15,9 @@ export function AuthProvider({ children }) {
 
     let active = true;
     let receivedAuthEvent = false;
+    const restoreTimeout = window.setTimeout(() => {
+      if (active) setLoading(false);
+    }, 1500);
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, nextSession) => {
       receivedAuthEvent = true;
       if (!active) return;
@@ -35,6 +38,7 @@ export function AuthProvider({ children }) {
 
     return () => {
       active = false;
+      window.clearTimeout(restoreTimeout);
       subscription.unsubscribe();
     };
   }, []);
