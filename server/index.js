@@ -38,7 +38,17 @@ async function sendNotice(to,subject,text){if(!mailer||!to)return false;try{awai
 async function createCustomerNotification(client,authUserId,title,body,orderId){if(!authUserId)return;await client.query('INSERT INTO customer_notifications(auth_user_id,title,body,order_id) VALUES($1,$2,$3,$4)',[authUserId,title,body,orderId||null]);}
 
 app.disable('x-powered-by');
-app.use(helmet({ crossOriginResourcePolicy: { policy: 'cross-origin' } }));
+app.use(helmet({
+  crossOriginResourcePolicy: { policy: 'cross-origin' },
+  contentSecurityPolicy: {
+    directives: {
+      ...helmet.contentSecurityPolicy.getDefaultDirectives(),
+      'script-src': ["'self'", 'https://checkout.razorpay.com'],
+      'frame-src': ["'self'", 'https://checkout.razorpay.com', 'https://api.razorpay.com'],
+      'connect-src': ["'self'", 'https://checkout.razorpay.com', 'https://api.razorpay.com'],
+    },
+  },
+}));
 app.use(cors({ origin: [...(process.env.CLIENT_ORIGIN || 'http://localhost:5173').split(',').map(x => x.trim()), process.env.RENDER_EXTERNAL_URL].filter(Boolean), credentials: true }));
 app.use('/api/payments/webhook', express.raw({ type: 'application/json', limit: '100kb' }));
 app.use(express.json({ limit: '2mb' }));

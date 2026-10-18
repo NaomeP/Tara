@@ -63,6 +63,21 @@ function resolveCheckoutCart(cart, liveCatalog) {
   });
 }
 function colorHistogram(source){return new Promise((resolve,reject)=>{const image=new Image();if(typeof source==='string'&&source.startsWith('http'))image.crossOrigin='anonymous';image.onload=()=>{const canvas=document.createElement('canvas');canvas.width=24;canvas.height=24;const context=canvas.getContext('2d',{willReadFrequently:true});context.drawImage(image,0,0,24,24);const pixels=context.getImageData(0,0,24,24).data;const bins=new Array(12).fill(0);for(let i=0;i<pixels.length;i+=4){if(pixels[i+3]<80)continue;bins[Math.min(3,pixels[i]>>6)]++;bins[4+Math.min(3,pixels[i+1]>>6)]++;bins[8+Math.min(3,pixels[i+2]>>6)]++;}const total=bins.reduce((a,b)=>a+b,0)||1;resolve(bins.map(x=>x/total));};image.onerror=()=>reject(new Error('Image could not be read.'));image.src=source;});}
+let razorpayCheckoutPromise;
+function loadRazorpayCheckout(){
+  if(window.Razorpay)return Promise.resolve();
+  if(razorpayCheckoutPromise)return razorpayCheckoutPromise;
+  razorpayCheckoutPromise=new Promise((resolve,reject)=>{
+    const script=document.createElement('script');
+    const timeout=window.setTimeout(()=>{script.remove();reject(new Error('Razorpay Checkout took too long to load. Check the connection or browser content blockers and try again.'));},15000);
+    script.src='https://checkout.razorpay.com/v1/checkout.js';
+    script.async=true;
+    script.onload=()=>{window.clearTimeout(timeout);if(window.Razorpay)resolve();else reject(new Error('Razorpay Checkout loaded without its payment interface. Please try again.'));};
+    script.onerror=()=>{window.clearTimeout(timeout);script.remove();reject(new Error('Razorpay Checkout was blocked or could not be reached. Check the site security policy and try again.'));};
+    document.head.appendChild(script);
+  }).catch(error=>{razorpayCheckoutPromise=null;throw error;});
+  return razorpayCheckoutPromise;
+}
 
 function App() {
   const auth = useAuth();
@@ -115,8 +130,9 @@ function App() {
       finally{clearTimeout(timeout);}
       const order=await response.json();if(!response.ok){const error=new Error(order.error||'Could not create your order.');error.details=order.details;throw error;}
       if(order.paymentMethod==='cod'||(order.status==='confirmed'&&!order.payment)){setReceipt(order.orderNumber);setCart([]);clearCheckoutAttemptKey();return;}
-      if(!window.Razorpay){await new Promise((resolve,reject)=>{const script=document.createElement('script');script.src='https://checkout.razorpay.com/v1/checkout.js';script.onload=resolve;script.onerror=()=>reject(new Error('Payment window could not be loaded.'));document.body.appendChild(script);});}
-      await new Promise((resolve,reject)=>{const checkout=new window.Razorpay({key:order.payment.keyId,amount:order.payment.amount,currency:order.payment.currency,name:'Tara',description:`Order ${order.orderNumber}`,order_id:order.payment.orderId,prefill:{name:form.get('name'),email:form.get('email'),contact:form.get('phone')},theme:{color:'#315544'},handler:async result=>{try{const verified=await fetch(`${API}/payments/verify`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...result,orderNumber:order.orderNumber})});const data=await verified.json();if(!verified.ok)throw new Error(data.error||'Payment verification failed.');setReceipt(order.orderNumber);setCart([]);clearCheckoutAttemptKey();resolve();}catch(err){reject(err);}}});checkout.on('payment.failed',()=>reject(new Error('Payment did not go through. Your order is not confirmed.')));checkout.open();});
+      if(!order.payment?.keyId||!order.payment?.orderId||!Number.isSafeInteger(Number(order.payment.amount))||order.payment.currency!=='INR')throw new Error('The payment order was incomplete. No payment window was opened. Please try again.');
+      await loadRazorpayCheckout();
+      await new Promise((resolve,reject)=>{const checkout=new window.Razorpay({key:order.payment.keyId,amount:order.payment.amount,currency:order.payment.currency,name:'Tara',description:`Order ${order.orderNumber}`,order_id:order.payment.orderId,prefill:{name:form.get('name'),email:form.get('email'),contact:form.get('phone')},theme:{color:'#315544'},modal:{ondismiss:()=>reject(new Error('Payment was cancelled. Your order remains pending; you can retry checkout from your bag.'))},handler:async result=>{try{const verified=await fetch(`${API}/payments/verify`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...result,orderNumber:order.orderNumber})});const data=await verified.json();if(!verified.ok)throw new Error(data.error||'Payment verification failed. Your order is not marked paid.');setReceipt(order.orderNumber);setCart([]);clearCheckoutAttemptKey();resolve();}catch(err){reject(err);}}});checkout.on('payment.failed',()=>reject(new Error('Payment did not go through. Your order is not confirmed.')));checkout.open();});
     } catch(error){const details=error.details||[];setCheckoutError(details.length?`Please check: ${[...new Set(details.map(issue=>({name:'name',phone:'mobile number',email:'email address','address.line1':'address line 1','address.line2':'address line 2','address.city':'city','address.state':'state','address.pincode':'PIN code',items:'cart items'}[issue.path]||issue.path)))].join(', ')}.`:error.message);} finally {setCheckoutBusy(false);}
   };
   const validateCoupon=async()=>{if(!couponInput.trim()){setCheckoutError('Enter a coupon code first.');return;}setCouponBusy(true);setCheckoutError('');try{const response=await fetch(`${API}/coupons/validate`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({code:couponInput,subtotalPaise:Math.round(subtotal*100)})});const data=await response.json();if(!response.ok)throw new Error(data.error||'Could not apply coupon.');setAppliedCoupon(data);}catch(error){setAppliedCoupon(null);setCheckoutError(error.message);}finally{setCouponBusy(false);}};
