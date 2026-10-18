@@ -15,6 +15,7 @@ import { createHmac, timingSafeEqual, randomBytes } from 'node:crypto';
 import { isCapturedPaymentForOrder } from './payment.js';
 
 const app = express();
+if (process.env.RENDER) app.set('trust proxy', 1);
 const databaseUrl = process.env.DATABASE_URL ? new URL(process.env.DATABASE_URL) : null;
 if (databaseUrl?.hostname.endsWith('.neon.tech') && !databaseUrl.hostname.includes('-pooler')) databaseUrl.hostname = databaseUrl.hostname.replace(/(\.c-\d+\.)/, '-pooler$1');
 const pool = new Pool({ connectionString: databaseUrl?.toString(), ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: true } : undefined, connectionTimeoutMillis: 8000, query_timeout: 12000, statement_timeout: 12000, keepAlive: true, idleTimeoutMillis: 30000 });
