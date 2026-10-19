@@ -56,10 +56,11 @@ export function AuthProvider({ children }) {
     },
     signUp: async (name, email, password) => {
       if (!supabase) throw new Error('Customer sign-in is not configured yet.');
+      const emailRedirectTo = typeof window === 'undefined' ? undefined : `${window.location.origin}/`;
       const { data, error } = await supabase.auth.signUp({
         email,
         password,
-        options: { data: { full_name: name } },
+        options: { data: { full_name: name }, ...(emailRedirectTo ? { emailRedirectTo } : {}) },
       });
       if (error) throw error;
       return data;
