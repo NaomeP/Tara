@@ -6,7 +6,7 @@ import { useAuth } from './AuthContext';
 const money = paise => `₹${(Number(paise || 0) / 100).toLocaleString('en-IN')}`;
 const deliverySteps = ['confirmed', 'processing', 'shipped', 'delivered'];
 
-export default function CustomerAccount({ onClose }) {
+export default function CustomerAccount({ onClose, checkoutRequired = false }) {
   const { configured, user, session, signIn, signUp, signOut } = useAuth();
   const [mode, setMode] = useState('signin');
   const [name, setName] = useState('');
@@ -97,12 +97,12 @@ export default function CustomerAccount({ onClose }) {
       {!configured ? <div className="account-auth-view">
         <span className="eyebrow"><i/> YOUR TARA ACCOUNT</span>
         <h2>A little more<br/><em>personal.</em></h2>
-        <p>Customer sign-in is not connected yet. Add the Supabase project URL and public anon key to the app configuration to enable accounts. You can still shop and check out as a guest.</p>
+        <p>Customer accounts are not connected yet. Add the Supabase project URL and public anon key to the app configuration before accepting orders.</p>
         <button className="button button-dark" onClick={onClose}>Continue shopping <ArrowRight size={16}/></button>
       </div> : !user ? <div className="account-auth-view">
         <span className="eyebrow"><i/> YOUR TARA ACCOUNT</span>
         <h2>{mode === 'signup' ? <>A lovely place<br/><em>to begin.</em></> : <>Good to have<br/><em>you back.</em></>}</h2>
-        <p>Sign in to keep your order history and saved addresses close.</p>
+        <p>{checkoutRequired ? 'Create a Tara account or sign in to an existing account before placing your order.' : 'Sign in to keep your order history and saved addresses close.'}</p>
         <form className="account-form" onSubmit={submitAuth}>
           {mode === 'signup' && <label>FULL NAME<input autoComplete="name" required minLength="2" maxLength="120" value={name} onChange={event => setName(event.target.value)}/></label>}
           <label>EMAIL ADDRESS<input type="email" autoComplete="email" required maxLength="254" value={email} onChange={event => setEmail(event.target.value)}/></label>
@@ -112,7 +112,7 @@ export default function CustomerAccount({ onClose }) {
           <button className="button button-dark" disabled={busy}>{busy ? 'One little moment…' : mode === 'signup' ? 'Create your account' : 'Sign in'} <ArrowRight size={16}/></button>
         </form>
         <button className="account-switch" onClick={() => { setMode(mode === 'signup' ? 'signin' : 'signup'); setError(''); setMessage(''); }}>{mode === 'signup' ? 'Already have an account? Sign in' : 'New to Tara? Create an account'}</button>
-        <small className="account-guest-note">You can always continue as a guest at checkout.</small>
+        {checkoutRequired && <small className="account-guest-note">Orders are linked to your account, so you can track them and request help later.</small>}
       </div> : <div className="account-dashboard">
         <div className="account-heading"><div><span className="eyebrow"><i/> YOUR TARA ACCOUNT</span><h2>Hello, <em>{user.user_metadata?.full_name?.split(' ')[0] || user.email?.split('@')[0] || 'lovely'}.</em></h2><p>{user.email}</p></div><button className="account-logout" disabled={busy} onClick={handleSignOut}><LogOut size={15}/> Sign out</button></div>
         {error && <p className="account-error" role="alert">{error}</p>}
