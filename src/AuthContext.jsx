@@ -65,6 +65,17 @@ export function AuthProvider({ children }) {
       if (error) throw error;
       return data;
     },
+    resendSignupConfirmation: async email => {
+      if (!supabase) throw new Error('Customer sign-in is not configured yet.');
+      const emailRedirectTo = typeof window === 'undefined' ? undefined : `${window.location.origin}/`;
+      const { data, error } = await supabase.auth.resend({
+        type: 'signup',
+        email,
+        options: emailRedirectTo ? { emailRedirectTo } : undefined,
+      });
+      if (error) throw error;
+      return data;
+    },
     signOut: async () => {
       if (!supabase) return;
       const { error } = await supabase.auth.signOut({ scope: 'local' });

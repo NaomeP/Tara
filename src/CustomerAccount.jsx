@@ -7,7 +7,7 @@ const money = paise => `₹${(Number(paise || 0) / 100).toLocaleString('en-IN')}
 const deliverySteps = ['confirmed', 'processing', 'shipped', 'delivered'];
 
 export default function CustomerAccount({ onClose, checkoutRequired = false }) {
-  const { configured, user, session, signIn, signUp, signOut } = useAuth();
+  const { configured, user, session, signIn, signUp, signOut, resendSignupConfirmation } = useAuth();
   const [mode, setMode] = useState('signin');
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
@@ -15,6 +15,7 @@ export default function CustomerAccount({ onClose, checkoutRequired = false }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
+  const [confirmationPending, setConfirmationPending] = useState(false);
   const [account, setAccount] = useState(null);
   const [loadingAccount, setLoadingAccount] = useState(false);
   const [expandedOrder, setExpandedOrder] = useState('');
@@ -51,12 +52,29 @@ export default function CustomerAccount({ onClose, checkoutRequired = false }) {
     try {
       if (mode === 'signup') {
         const result = await signUp(name.trim(), email.trim(), password);
-        if (!result.session) setMessage('Check your email to confirm your account, then come back to sign in.');
+        if (!result.session) {
+          setConfirmationPending(true);
+          setMessage('Check your email to confirm your account, then come back to sign in.');
+        }
       } else {
+        setConfirmationPending(false);
         await signIn(email.trim(), password);
       }
     } catch (authError) {
       setError(authError.message || 'We could not sign you in. Please try again.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const resendConfirmation = async () => {
+    setBusy(true);
+    setError('');
+    try {
+      await resendSignupConfirmation(email.trim());
+      setMessage('A new confirmation email is on its way. Use only the newest link.');
+    } catch (authError) {
+      setError(authError.message || 'We could not resend the confirmation email. Please try again.');
     } finally {
       setBusy(false);
     }
@@ -111,7 +129,8 @@ export default function CustomerAccount({ onClose, checkoutRequired = false }) {
           {message && <p className="account-message" role="status">{message}</p>}
           <button className="button button-dark" disabled={busy}>{busy ? 'One little moment…' : mode === 'signup' ? 'Create your account' : 'Sign in'} <ArrowRight size={16}/></button>
         </form>
-        <button className="account-switch" onClick={() => { setMode(mode === 'signup' ? 'signin' : 'signup'); setError(''); setMessage(''); }}>{mode === 'signup' ? 'Already have an account? Sign in' : 'New to Tara? Create an account'}</button>
+        {confirmationPending && <button className="account-switch" type="button" disabled={busy} onClick={resendConfirmation}>Resend confirmation email</button>}
+        <button className="account-switch" onClick={() => { setMode(mode === 'signup' ? 'signin' : 'signup'); setConfirmationPending(false); setError(''); setMessage(''); }}>{mode === 'signup' ? 'Already have an account? Sign in' : 'New to Tara? Create an account'}</button>
         {checkoutRequired && <small className="account-guest-note">Orders are linked to your account, so you can track them and request help later.</small>}
       </div> : <div className="account-dashboard">
         <div className="account-heading"><div><span className="eyebrow"><i/> YOUR TARA ACCOUNT</span><h2>Hello, <em>{user.user_metadata?.full_name?.split(' ')[0] || user.email?.split('@')[0] || 'lovely'}.</em></h2><p>{user.email}</p></div><button className="account-logout" disabled={busy} onClick={handleSignOut}><LogOut size={15}/> Sign out</button></div>
