@@ -44,6 +44,7 @@ async function createCustomerNotification(client,authUserId,title,body,orderId){
 
 app.disable('x-powered-by');
 app.use(helmet({
+  crossOriginOpenerPolicy: { policy: 'same-origin-allow-popups' },
   crossOriginResourcePolicy: { policy: 'cross-origin' },
   contentSecurityPolicy: {
     directives: {
