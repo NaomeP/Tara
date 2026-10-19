@@ -24,8 +24,8 @@ pool.on('error', error => console.error('Unexpected idle database connection err
 const port = Number(process.env.PORT || 4000);
 const jwtSecret = process.env.JWT_SECRET;
 if (!jwtSecret || jwtSecret.length < 32) throw new Error('Set JWT_SECRET to a random secret with at least 32 characters.');
-const supabaseUrl = process.env.SUPABASE_URL?.replace(/\/$/, '');
-const supabaseAnonKey = process.env.SUPABASE_ANON_KEY;
+const supabaseUrl = (process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL)?.replace(/\/$/, '');
+const supabaseAnonKey = process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY;
 const supabaseConnectOrigin = supabaseUrl ? new URL(supabaseUrl).origin : null;
 const razorpay = process.env.RAZORPAY_KEY_ID && process.env.RAZORPAY_KEY_SECRET ? new Razorpay({ key_id: process.env.RAZORPAY_KEY_ID, key_secret: process.env.RAZORPAY_KEY_SECRET }) : null;
 const mailer = process.env.SMTP_HOST ? nodemailer.createTransport({host:process.env.SMTP_HOST,port:Number(process.env.SMTP_PORT||587),secure:process.env.SMTP_SECURE==='true',auth:process.env.SMTP_USER?{user:process.env.SMTP_USER,pass:process.env.SMTP_PASSWORD}:undefined}) : null;
