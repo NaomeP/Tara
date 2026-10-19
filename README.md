@@ -1,6 +1,6 @@
-# Thara
+# Tara
 
-Thara is a React/Vite storefront with an Express API and PostgreSQL database. The storefront includes product discovery, product size selection, a persistent cart and wishlist, English/Tamil switch, responsive layouts, and PWA support. The API owns pricing, stock checks, orders, payment verification, and protected administration.
+Tara is a React/Vite storefront with an Express API and PostgreSQL database. The storefront includes product discovery, product size selection, a persistent cart and wishlist, English/Tamil switch, responsive layouts, and PWA support. The API owns pricing, stock checks, orders, payment verification, and protected administration.
 
 ## Requirements
 
