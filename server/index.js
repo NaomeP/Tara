@@ -24,6 +24,9 @@ pool.on('error', error => console.error('Unexpected idle database connection err
 const port = Number(process.env.PORT || 4000);
 const jwtSecret = process.env.JWT_SECRET;
 if (!jwtSecret || jwtSecret.length < 32) throw new Error('Set JWT_SECRET to a random secret with at least 32 characters.');
+const supabaseUrl = process.env.SUPABASE_URL?.replace(/\/$/, '');
+const supabaseAnonKey = process.env.SUPABASE_ANON_KEY;
+const supabaseConnectOrigin = supabaseUrl ? new URL(supabaseUrl).origin : null;
 const razorpay = process.env.RAZORPAY_KEY_ID && process.env.RAZORPAY_KEY_SECRET ? new Razorpay({ key_id: process.env.RAZORPAY_KEY_ID, key_secret: process.env.RAZORPAY_KEY_SECRET }) : null;
 const mailer = process.env.SMTP_HOST ? nodemailer.createTransport({host:process.env.SMTP_HOST,port:Number(process.env.SMTP_PORT||587),secure:process.env.SMTP_SECURE==='true',auth:process.env.SMTP_USER?{user:process.env.SMTP_USER,pass:process.env.SMTP_PASSWORD}:undefined}) : null;
 const isTransientDatabaseError=error=>['ECONNRESET','ECONNREFUSED','ETIMEDOUT','ECONNABORTED','57P01','57P03','08003','08006','53300'].includes(error.code)||/connection terminated unexpectedly|socket hang up|timeout/i.test(error.message||'');
@@ -47,7 +50,7 @@ app.use(helmet({
       ...helmet.contentSecurityPolicy.getDefaultDirectives(),
       'script-src': ["'self'", 'https://checkout.razorpay.com'],
       'frame-src': ["'self'", 'https://checkout.razorpay.com', 'https://api.razorpay.com'],
-      'connect-src': ["'self'", 'https://checkout.razorpay.com', 'https://api.razorpay.com'],
+      'connect-src': ["'self'", 'https://checkout.razorpay.com', 'https://api.razorpay.com', ...(supabaseConnectOrigin ? [supabaseConnectOrigin] : [])],
     },
   },
 }));
@@ -74,8 +77,6 @@ async function replaceProductVariants(client,productId,variants){
  await client.query('DELETE FROM product_variants WHERE product_id=$1',[productId]);
  for(const variant of variants) await client.query('INSERT INTO product_variants(product_id,sku,options,price_paise,stock) VALUES($1,$2,$3,$4,$5)',[productId,variant.sku,variant.options,variant.pricePaise??null,variant.stock]);
 }
-const supabaseUrl = process.env.SUPABASE_URL?.replace(/\/$/, '');
-const supabaseAnonKey = process.env.SUPABASE_ANON_KEY;
 const customerAuth = (req,res,next) => {
   const token=(req.headers.authorization||'').match(/^Bearer\s+(.+)$/i)?.[1];
   if(!token)return res.status(401).json({error:'Please sign in to view your account.'});
