@@ -213,7 +213,7 @@ app.delete('/api/admin/products/:id',adminAuth,asyncRoute(async(req,res)=>{
  }catch(error){await client.query('ROLLBACK');throw error;}finally{client.release();}
 }));
 app.put('/api/admin/products/:id',adminAuth,asyncRoute(async(req,res)=>{
- const d=productInput.parse(req.body);d.imageUrl=await normalizeProductImage(d.imageUrl);if(!d.sku)d.sku='TH-'+randomBytes(4).toString('hex').toUpperCase();if(d.slug&&(await pool.query('SELECT 1 FROM products WHERE slug= AND id<> LIMIT 1',[d.slug,req.params.id])).rows[0])d.slug=d.slug+'-'+randomBytes(2).toString('hex');const values=[req.params.id,d.categoryId||null,d.name,d.slug||null,d.description,d.productType,d.pricePaise,d.compareAtPaise??null,d.sku,d.imageUrl,d.imageAlt,d.color,d.tag,d.sizes,d.variants.length?d.variants.reduce((sum,v)=>sum+v.stock,0):d.stock,d.published,d.featured];
+ const d=productInput.parse(req.body);d.imageUrl=await normalizeProductImage(d.imageUrl);if(!d.sku)d.sku='TH-'+randomBytes(4).toString('hex').toUpperCase();if(d.slug&&(await pool.query('SELECT 1 FROM products WHERE slug=$1 AND id<>$2 LIMIT 1',[d.slug,req.params.id])).rows[0])d.slug=d.slug+'-'+randomBytes(2).toString('hex');const values=[req.params.id,d.categoryId||null,d.name,d.slug||null,d.description,d.productType,d.pricePaise,d.compareAtPaise??null,d.sku,d.imageUrl,d.imageAlt,d.color,d.tag,d.sizes,d.variants.length?d.variants.reduce((sum,v)=>sum+v.stock,0):d.stock,d.published,d.featured];
  for(let attempt=0;attempt<2;attempt++){
   const client=await pool.connect();let discardClient=false;
   try{
