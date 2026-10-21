@@ -107,7 +107,7 @@ async function normalizeProductImage(imageUrl){
  if(!match)return imageUrl;
  const source=Buffer.from(match[1],'base64');
  if(source.length>30*1024*1024)throw Object.assign(new Error('Photos must be 30 MB or smaller.'),{status:413});
- let normalized;try{normalized=await sharp(source,{limitInputPixels:100000000}).rotate().resize({width:1000,height:1200,fit:'inside',withoutEnlargement:true}).jpeg({quality:78}).toBuffer();}catch(error){const readable=Object.assign(new Error('This photo could not be converted. Save it as JPG, PNG, WebP, AVIF, or TIFF and try again.'),{status:400});readable.cause=error;throw readable;}
+ let normalized;try{normalized=await sharp(source,{limitInputPixels:100000000}).rotate().resize({width:1600,height:2000,fit:'inside',withoutEnlargement:true}).jpeg({quality:86}).toBuffer();}catch(error){const readable=Object.assign(new Error('This photo could not be converted. Save it as JPG, PNG, WebP, AVIF, or TIFF and try again.'),{status:400});readable.cause=error;throw readable;}
  return `data:image/jpeg;base64,${normalized.toString('base64')}`;
 }
 async function normalizeCollectionImage(source){
