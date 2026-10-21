@@ -581,3 +581,4 @@ body{background:#fffdf9;color:#302b27}
 .arrival-banner>img{object-position:center top}
 .arrival-banner{width:83%;height:auto;min-height:0;max-height:none;aspect-ratio:1536 / 420;margin:8px auto 20px}
 @media(max-width:600px){.arrival-banner{width:calc(100% - 26px);aspect-ratio:1536 / 640;margin:0 auto 15px}}
+.search-bar{position:relative;top:auto;right:auto;bottom:auto;left:auto;z-index:9;width:100%}
