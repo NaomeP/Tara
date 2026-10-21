@@ -11,7 +11,7 @@ export async function api(path, options = {}) {
   const normalizeImages = value => {
     if (Array.isArray(value)) return value.map(normalizeImages);
     if (!value || typeof value !== 'object') return value;
-    return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, (key === 'image' || key === 'image_url') && typeof item === 'string' ? resolveImageUrl(item) : normalizeImages(item)]));
+    return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, key === 'images' && Array.isArray(item) ? item.map(resolveImageUrl) : (key === 'image' || key === 'image_url') && typeof item === 'string' ? resolveImageUrl(item) : normalizeImages(item)]));
   };
   return normalizeImages(data);
 }

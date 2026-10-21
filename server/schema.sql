@@ -11,11 +11,20 @@ CREATE TABLE IF NOT EXISTS products (
   product_type text NOT NULL DEFAULT '', price_paise integer NOT NULL CHECK (price_paise >= 0),
   compare_at_paise integer CHECK (compare_at_paise IS NULL OR compare_at_paise >= price_paise),
   sku text NOT NULL DEFAULT '', image_url text NOT NULL DEFAULT '', image_alt text NOT NULL DEFAULT '', color text NOT NULL DEFAULT '',
-  tag text NOT NULL DEFAULT '', sizes text[] NOT NULL DEFAULT '{}', stock integer NOT NULL DEFAULT 0 CHECK (stock >= 0),
+  tag text NOT NULL DEFAULT '', sizes text[] NOT NULL DEFAULT '{}', gallery_images text[] NOT NULL DEFAULT '{}',
+  fabric text NOT NULL DEFAULT '', care_instructions text NOT NULL DEFAULT '', occasions text[] NOT NULL DEFAULT '{}',
+  print_work text NOT NULL DEFAULT '', size_guide jsonb NOT NULL DEFAULT '[]'::jsonb,
+  stock integer NOT NULL DEFAULT 0 CHECK (stock >= 0),
   published boolean NOT NULL DEFAULT false, featured boolean NOT NULL DEFAULT false,
   created_at timestamptz NOT NULL DEFAULT now(), updated_at timestamptz NOT NULL DEFAULT now()
 );
 ALTER TABLE products ADD COLUMN IF NOT EXISTS sku text NOT NULL DEFAULT '';
+ALTER TABLE products ADD COLUMN IF NOT EXISTS gallery_images text[] NOT NULL DEFAULT '{}';
+ALTER TABLE products ADD COLUMN IF NOT EXISTS fabric text NOT NULL DEFAULT '';
+ALTER TABLE products ADD COLUMN IF NOT EXISTS care_instructions text NOT NULL DEFAULT '';
+ALTER TABLE products ADD COLUMN IF NOT EXISTS occasions text[] NOT NULL DEFAULT '{}';
+ALTER TABLE products ADD COLUMN IF NOT EXISTS print_work text NOT NULL DEFAULT '';
+ALTER TABLE products ADD COLUMN IF NOT EXISTS size_guide jsonb NOT NULL DEFAULT '[]'::jsonb;
 CREATE INDEX IF NOT EXISTS products_published_category ON products(published, category_id);
 CREATE TABLE IF NOT EXISTS product_variants (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(), product_id uuid NOT NULL REFERENCES products(id) ON DELETE CASCADE,
