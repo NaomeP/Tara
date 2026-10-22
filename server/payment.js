@@ -9,3 +9,10 @@ export function isCapturedPaymentForOrder(payment, order) {
     Number(payment.amount) === Number(order.amountPaise)
   );
 }
+
+export function refundStatusFromProvider(status) {
+  if (status === 'processed') return 'processed';
+  if (status === 'failed') return 'failed';
+  if (status === 'pending' || status === 'created') return 'requested';
+  return 'unknown';
+}

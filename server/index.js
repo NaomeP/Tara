@@ -13,7 +13,7 @@ import Razorpay from 'razorpay';
 import nodemailer from 'nodemailer';
 import { z } from 'zod';
 import { createHmac, timingSafeEqual, randomBytes } from 'node:crypto';
-import { isCapturedPaymentForOrder } from './payment.js';
+import { isCapturedPaymentForOrder, refundStatusFromProvider } from './payment.js';
 
 const app = express();
 if (process.env.RENDER || process.env.RAILWAY_PROJECT_ID) app.set('trust proxy', 1);
@@ -286,17 +286,51 @@ app.put('/api/admin/categories/:id',adminAuth,asyncRoute(async(req,res)=>{const 
 app.delete('/api/admin/categories/:id',adminAuth,asyncRoute(async(req,res)=>{const client=await pool.connect();try{await client.query('BEGIN');const found=await client.query('SELECT id FROM categories WHERE id=$1 FOR UPDATE',[req.params.id]);if(!found.rows[0])throw Object.assign(new Error('Category not found.'),{status:404});await client.query('UPDATE products SET category_id=NULL WHERE category_id=$1',[req.params.id]);await client.query('UPDATE categories SET parent_id=NULL WHERE parent_id=$1',[req.params.id]);await client.query('DELETE FROM categories WHERE id=$1',[req.params.id]);await audit(client,req.admin.email,'delete','category',req.params.id);await client.query('COMMIT');res.json({ok:true});}catch(e){await client.query('ROLLBACK');throw e;}finally{client.release();}}));
 app.get('/api/admin/orders',adminAuth,asyncRoute(async(_req,res)=>{const {rows}=await pool.query('SELECT * FROM orders ORDER BY created_at DESC LIMIT 250');res.json(rows);}));
 app.get('/api/admin/refunds',adminAuth,asyncRoute(async(_req,res)=>{const {rows}=await pool.query('SELECT r.*,o.order_number,o.customer_name,o.payment_method,o.total_paise,o.refunded_paise FROM refund_transactions r JOIN orders o ON o.id=r.order_id ORDER BY r.created_at DESC LIMIT 250');res.json(rows);}));
-app.post('/api/admin/orders/:id/refunds',adminAuth,asyncRoute(async(req,res)=>{if(!razorpay)return res.status(503).json({error:'Razorpay refund processing is not configured.'});const d=z.object({amountPaise:z.number().int().positive(),note:z.string().max(500).default('')}).parse(req.body);const client=await pool.connect();let refund;try{await client.query('BEGIN');const {rows}=await client.query('SELECT o.id,o.order_number,o.payment_status,o.payment_method,o.razorpay_payment_id,o.total_paise,o.refunded_paise,c.auth_user_id FROM orders o LEFT JOIN customers c ON c.id=o.customer_id WHERE o.id=$1 FOR UPDATE OF o',[req.params.id]);const order=rows[0];if(!order)throw Object.assign(new Error('Order not found.'),{status:404});if(order.payment_method!=='razorpay'||order.payment_status!=='paid'||!order.razorpay_payment_id)throw Object.assign(new Error('Only captured online payments with a verified payment reference can be refunded here.'),{status:409});const uncertain=await client.query("SELECT 1 FROM refund_transactions WHERE order_id=$1 AND status IN ('requested','unknown') LIMIT 1",[order.id]);if(uncertain.rows[0])throw Object.assign(new Error('A previous refund is still being verified. Reconcile it with Razorpay before starting another.'),{status:409});if(d.amountPaise>order.total_paise-order.refunded_paise)throw Object.assign(new Error('Refund amount is greater than the amount remaining to refund.'),{status:400});const created=await client.query("INSERT INTO refund_transactions(order_id,amount_paise,status,requested_by,note) VALUES($1,$2,'requested',$3,$4) RETURNING *",[order.id,d.amountPaise,req.admin.email,d.note]);refund=created.rows[0];await client.query('UPDATE orders SET refunded_paise=refunded_paise+$2,updated_at=now() WHERE id=$1',[order.id]);await createCustomerNotification(client,order.auth_user_id,`Refund started · ${order.order_number}`,`A refund for ${Math.round(d.amountPaise/100).toLocaleString('en-IN')} is being processed.`,order.id);await audit(client,req.admin.email,'request_refund','order',order.id,{amountPaise:d.amountPaise});await client.query('COMMIT');}catch(error){await client.query('ROLLBACK');throw error;}finally{client.release();}
+app.post('/api/admin/orders/:id/refunds',adminAuth,asyncRoute(async(req,res)=>{
+ if(!razorpay)return res.status(503).json({error:'Razorpay refund processing is not configured. Set the server Razorpay key ID and secret.'});
+ const d=z.object({amountPaise:z.number().int().positive(),note:z.string().max(500).default('')}).parse(req.body);
+ const client=await pool.connect();let refund,paymentId,originalAmount;
  try{
-  const payment=(await pool.query('SELECT razorpay_payment_id FROM orders WHERE id=$1',[req.params.id])).rows[0];
-  const result=await razorpay.payments.refund(payment.razorpay_payment_id,{amount:d.amountPaise,notes:{order_id:req.params.id,refund_id:refund.id}});
-  const processed=result.status==='processed',fullyRefunded=processed&&(await pool.query('SELECT refunded_paise>=total_paise AS full FROM orders WHERE id=$1',[req.params.id])).rows[0]?.full;
-  await pool.query('UPDATE refund_transactions SET provider_refund_id=$2,status=$3,updated_at=now() WHERE id=$1',[refund.id,result.id,processed?'processed':'unknown']);
-  if(fullyRefunded)await pool.query("UPDATE orders SET payment_status='refunded',status='refunded',updated_at=now() WHERE id=$1",[req.params.id]);
-  return res.status(201).json({id:refund.id,status:processed?'processed':'unknown',providerRefundId:result.id});
- }catch(error){const definite=Number(error.statusCode)>=400&&Number(error.statusCode)<500;if(definite){await pool.query("UPDATE refund_transactions SET status='failed',updated_at=now() WHERE id=$1",[refund.id]);await pool.query('UPDATE orders SET refunded_paise=GREATEST(0,refunded_paise-$2) WHERE id=$1',[req.params.id,d.amountPaise]);}else await pool.query("UPDATE refund_transactions SET status='unknown',updated_at=now() WHERE id=$1",[refund.id]);const providerMessage=error.error?.description||error.error?.reason;const message=definite?(providerMessage?`Razorpay rejected this refund: ${String(providerMessage).slice(0,240)} The reserved amount has been released.`:'Razorpay rejected this refund request. The reserved amount has been released.'):'Refund status is uncertain. It is held for reconciliation; do not submit another refund until checked in Razorpay.';return res.status(definite?502:503).json({error:message});}
-}));
-app.get('/api/admin/returns',adminAuth,asyncRoute(async(_req,res)=>{const {rows}=await pool.query('SELECT r.id,r.reason,r.status,r.requested_at,o.order_number,o.customer_name,o.phone FROM return_requests r JOIN orders o ON o.id=r.order_id ORDER BY r.requested_at DESC LIMIT 250');res.json(rows);}));
+  await client.query('BEGIN');
+  const {rows}=await client.query('SELECT o.id,o.order_number,o.payment_status,o.payment_method,o.razorpay_payment_id,o.total_paise,o.refunded_paise,c.auth_user_id FROM orders o LEFT JOIN customers c ON c.id=o.customer_id WHERE o.id=$1 FOR UPDATE OF o',[req.params.id]);
+  const order=rows[0];
+  if(!order)throw Object.assign(new Error('Order not found.'),{status:404});
+  if(order.payment_method!=='razorpay'||order.payment_status!=='paid'||!order.razorpay_payment_id)throw Object.assign(new Error('Only captured online payments with a verified payment reference can be refunded here.'),{status:409});
+  const uncertain=await client.query("SELECT 1 FROM refund_transactions WHERE order_id=$1 AND status IN ('requested','unknown') LIMIT 1",[order.id]);
+  if(uncertain.rows[0])throw Object.assign(new Error('A previous refund is still being verified. Check Razorpay before trying again.'),{status:409});
+  if(d.amountPaise>order.total_paise-order.refunded_paise)throw Object.assign(new Error('Refund amount is greater than the amount remaining to refund.'),{status:400});
+  paymentId=order.razorpay_payment_id;originalAmount=Number(order.total_paise);
+  const created=await client.query("INSERT INTO refund_transactions(order_id,amount_paise,status,requested_by,note) VALUES($1,$2,'requested',$3,$4) RETURNING *",[order.id,d.amountPaise,req.admin.email,d.note]);
+  refund=created.rows[0];
+  await client.query('UPDATE orders SET refunded_paise=refunded_paise+$2,updated_at=now() WHERE id=$1',[order.id,d.amountPaise]);
+  await createCustomerNotification(client,order.auth_user_id,`Refund started · ${order.order_number}`,`A refund for ${Math.round(d.amountPaise/100).toLocaleString('en-IN')} is being processed.`,order.id);
+  await audit(client,req.admin.email,'request_refund','order',order.id,{amountPaise:d.amountPaise});
+  await client.query('COMMIT');
+ }catch(error){try{await client.query('ROLLBACK');}catch{}throw error;}finally{client.release();}
+ try{
+  const payment=await razorpay.payments.fetch(paymentId);
+  if(payment.status!=='captured'||Number(payment.amount)!==originalAmount||payment.currency!=='INR')throw Object.assign(new Error('The configured Razorpay account cannot verify this captured INR payment and amount. Make sure the server key ID and secret match the Test or Live mode used for checkout.'),{statusCode:409,definite:true});
+  const result=await razorpay.payments.refund(paymentId,{amount:d.amountPaise,notes:{order_id:req.params.id,refund_id:refund.id}});
+  const status=refundStatusFromProvider(result.status);
+  await pool.query('UPDATE refund_transactions SET provider_refund_id=$2,status=$3,updated_at=now() WHERE id=$1',[refund.id,result.id,status]);
+  if(status==='failed'){
+   await pool.query('UPDATE orders SET refunded_paise=GREATEST(0,refunded_paise-$2),updated_at=now() WHERE id=$1',[req.params.id,d.amountPaise]);
+   return res.status(502).json({error:'Razorpay did not accept the refund. The reserved amount has been released.'});
+  }
+  if(status==='processed')await pool.query("UPDATE orders SET payment_status=CASE WHEN refunded_paise>=total_paise THEN 'refunded' ELSE payment_status END,status=CASE WHEN refunded_paise>=total_paise THEN 'refunded' ELSE status END,updated_at=now() WHERE id=$1",[req.params.id]);
+  return res.status(201).json({id:refund.id,status,providerRefundId:result.id});
+ }catch(error){
+  const definite=Boolean(error.definite)||(Number(error.statusCode)>=400&&Number(error.statusCode)<500);
+  if(definite){
+   await pool.query("UPDATE refund_transactions SET status='failed',updated_at=now() WHERE id=$1",[refund.id]);
+   await pool.query('UPDATE orders SET refunded_paise=GREATEST(0,refunded_paise-$2),updated_at=now() WHERE id=$1',[req.params.id,d.amountPaise]);
+  }else await pool.query("UPDATE refund_transactions SET status='unknown',updated_at=now() WHERE id=$1",[refund.id]);
+  const providerMessage=error.error?.description||error.error?.reason||error.message;
+  console.error('Razorpay refund request failed:',JSON.stringify({orderId:req.params.id,refundId:refund.id,statusCode:error.statusCode||null,code:error.error?.code||error.code||null,description:providerMessage||null}));
+  const message=definite?`Refund was rejected: ${String(providerMessage||'Razorpay rejected the request.').slice(0,240)} Check that the Razorpay key ID and secret match the payment mode; the reserved amount has been released.`:'Razorpay did not confirm the refund result. It is held for reconciliation; check Razorpay before trying again.';
+  return res.status(definite?502:503).json({error:message});
+ }
+}));app.get('/api/admin/returns',adminAuth,asyncRoute(async(_req,res)=>{const {rows}=await pool.query('SELECT r.id,r.reason,r.status,r.requested_at,o.order_number,o.customer_name,o.phone FROM return_requests r JOIN orders o ON o.id=r.order_id ORDER BY r.requested_at DESC LIMIT 250');res.json(rows);}));
 app.patch('/api/admin/returns/:id',adminAuth,asyncRoute(async(req,res)=>{const d=z.object({status:z.enum(['approved','rejected','received'])}).parse(req.body);const {rows}=await pool.query('UPDATE return_requests SET status=$2 WHERE id=$1 RETURNING id,status,reason',[req.params.id,d.status]);if(!rows[0])return res.status(404).json({error:'Return request not found.'});res.json(rows[0]);}));
 app.get('/api/admin/customer-requests',adminAuth,asyncRoute(async(_req,res)=>{const {rows}=await pool.query('SELECT r.id,r.order_id,r.order_item_id,r.request_type,r.reason,r.comments,r.status,r.decision_reason,r.requested_at,r.updated_at,o.order_number,o.customer_name,o.phone,i.product_name FROM customer_order_requests r JOIN orders o ON o.id=r.order_id LEFT JOIN order_items i ON i.id=r.order_item_id ORDER BY r.requested_at DESC LIMIT 250');res.json(rows);}));
 app.patch('/api/admin/customer-requests/:id',adminAuth,asyncRoute(async(req,res)=>{const d=z.object({status:z.enum(['under_review','approved','rejected','pickup_arranged','received','refund_processing','completed']),decisionReason:z.string().trim().max(1000).default('')}).parse(req.body);const transitions={requested:['under_review','approved','rejected','refund_processing'],under_review:['approved','rejected','refund_processing'],approved:['pickup_arranged','received','rejected','refund_processing'],pickup_arranged:['received','rejected','refund_processing'],received:['refund_processing','completed'],refund_processing:['completed'],rejected:[],completed:[]};const client=await pool.connect();try{await client.query('BEGIN');const current=await client.query('SELECT r.id,r.order_id,r.request_type,r.status,o.order_number,c.auth_user_id FROM customer_order_requests r JOIN orders o ON o.id=r.order_id JOIN customers c ON c.id=o.customer_id WHERE r.id=$1 FOR UPDATE OF r',[req.params.id]);if(!current.rows[0])throw Object.assign(new Error('Customer request not found.'),{status:404});if(!transitions[current.rows[0].status]?.includes(d.status))throw Object.assign(new Error(`Cannot move this request from ${current.rows[0].status} to ${d.status}.`),{status:409});const {rows}=await client.query('UPDATE customer_order_requests SET status=$2,decision_reason=$3,updated_at=now() WHERE id=$1 RETURNING id,order_id,request_type,status,decision_reason',[req.params.id,d.status,d.decisionReason]);await createCustomerNotification(client,current.rows[0].auth_user_id,`${current.rows[0].request_type} update · ${current.rows[0].order_number}`,`Your ${current.rows[0].request_type} request is now ${d.status.replaceAll('_',' ')}.${d.decisionReason?` ${d.decisionReason}`:''}`,current.rows[0].order_id);await audit(client,req.admin.email,'update_customer_request',rows[0].request_type,rows[0].id,{status:d.status,decisionReason:d.decisionReason});await client.query('COMMIT');res.json(rows[0]);}catch(error){await client.query('ROLLBACK');throw error;}finally{client.release();}}));
@@ -412,6 +446,23 @@ app.post('/api/payments/webhook',asyncRoute(async(req,res)=>{
  const event=JSON.parse(req.body.toString('utf8')),entity=event.payload?.payment?.entity;
  if(event.event==='payment.captured'&&entity?.order_id){const {rows}=await pool.query("UPDATE orders SET payment_status='paid',status='confirmed',razorpay_payment_id=$2,payment_expires_at=NULL,updated_at=now() WHERE razorpay_order_id=$1 AND payment_method='razorpay' AND payment_status='pending' AND total_paise=$3 AND $4='INR' RETURNING id",[entity.order_id,entity.id,entity.amount,entity.currency]);if(!rows[0])console.warn('Captured payment did not match a pending Tara order:',entity.order_id);}
  if(entity?.order_id&&event.event==='payment.failed'){const client=await pool.connect();try{await client.query('BEGIN');const {rows}=await client.query("SELECT id FROM orders WHERE razorpay_order_id=$1 AND payment_status='pending' AND status='pending_payment' FOR UPDATE",[entity.order_id]);if(rows[0]){await client.query("UPDATE orders SET payment_status='failed',status='cancelled',payment_expires_at=NULL,updated_at=now() WHERE id=$1",[rows[0].id]);await releaseReservedStock(client,rows[0].id,'Payment failed; stock released');}await client.query('COMMIT');}catch(error){await client.query('ROLLBACK');throw error;}finally{client.release();}}
+ const refundEntity=event.payload?.refund?.entity;
+ if(refundEntity?.id&&['refund.processed','refund.failed'].includes(event.event)){
+  const client=await pool.connect();
+  try{
+   await client.query('BEGIN');
+   const current=await client.query("SELECT r.id,r.order_id,r.amount_paise,r.status,o.total_paise,o.refunded_paise FROM refund_transactions r JOIN orders o ON o.id=r.order_id WHERE r.provider_refund_id=$1 OR (o.razorpay_payment_id=$2 AND r.amount_paise=$3 AND r.status IN ('requested','unknown')) ORDER BY (r.provider_refund_id=$1) DESC,r.created_at DESC LIMIT 1 FOR UPDATE OF r,o",[refundEntity.id,refundEntity.payment_id,refundEntity.amount]);
+   const refund=current.rows[0];
+   if(refund&&event.event==='refund.failed'&&refund.status!=='failed'&&refund.status!=='processed'){
+    await client.query("UPDATE refund_transactions SET provider_refund_id=COALESCE(provider_refund_id,$2),status='failed',updated_at=now() WHERE id=$1",[refund.id,refundEntity.id]);
+    await client.query('UPDATE orders SET refunded_paise=GREATEST(0,refunded_paise-$2),updated_at=now() WHERE id=$1',[refund.order_id,refund.amount_paise]);
+   }else if(refund&&event.event==='refund.processed'&&refund.status!=='failed'){
+    await client.query("UPDATE refund_transactions SET provider_refund_id=COALESCE(provider_refund_id,$2),status='processed',updated_at=now() WHERE id=$1",[refund.id,refundEntity.id]);
+    await client.query("UPDATE orders SET payment_status=CASE WHEN refunded_paise>=total_paise THEN 'refunded' ELSE payment_status END,status=CASE WHEN refunded_paise>=total_paise THEN 'refunded' ELSE status END,updated_at=now() WHERE id=$1",[refund.order_id]);
+   }
+   await client.query('COMMIT');
+  }catch(error){await client.query('ROLLBACK');throw error;}finally{client.release();}
+ }
  res.json({received:true});
 }));
 
