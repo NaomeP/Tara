@@ -5,7 +5,7 @@ services:
     plan: free
     buildCommand: pnpm install --frozen-lockfile --prod=false && pnpm build
     startCommand: pnpm start:api
-    healthCheckPath: /api/health
+    healthCheckPath: /api/ready
     envVars:
       - key: NODE_ENV
         value: production
@@ -33,6 +33,12 @@ services:
         sync: false
       - key: RAZORPAY_WEBHOOK_SECRET
         sync: false
+      - key: ENABLE_COD
+        value: "true"
+      - key: FREE_SHIPPING_THRESHOLD
+        value: "199900"
+      - key: FLAT_SHIPPING_FEE
+        value: "9900"
       - key: OPENAI_API_KEY
         sync: false
       - key: SMTP_HOST

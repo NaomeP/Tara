@@ -43,7 +43,7 @@ Apply schema changes explicitly with `pnpm db:migrate` after reviewing its SQL, 
 
 ## Deployment checklist
 
-- Provision PostgreSQL with automated backups and TLS; set `DATABASE_URL` and run `pnpm db:setup`.
+- Provision PostgreSQL with automated backups and TLS; set `DATABASE_URL`, take a backup, review the schema changes, and apply them with `pnpm db:migrate`. Do not run `pnpm db:setup` on production because it adds demo records.
 - Set a unique `JWT_SECRET`, admin email/hash, allowed `CLIENT_ORIGIN`, shipping fees, and COD policy.
 - Configure Razorpay test keys and webhook, test payment success/failure and refund operations, then replace with approved live credentials.
 - Configure SMTP and verify order and status messages.
@@ -51,6 +51,10 @@ Apply schema changes explicitly with `pnpm db:migrate` after reviewing its SQL, 
 - Connect a courier provider for PIN serviceability, fulfilment, returns, and tracking events.
 - Build with `pnpm build`; host the Vite `dist` output and run `pnpm start:api` on a Node host.
 - Set up backups, monitoring, security review, and production policies before accepting real orders.
+
+### Railway deployment
+
+Railway can detect the `pnpm start` script in `package.json`; it runs the Express server, which serves the built storefront from `dist`. The server listens on Railway's `PORT` and enables one trusted proxy hop when Railway provides `RAILWAY_PROJECT_ID`, which keeps IP-based API rate limits working behind Railway's ingress. Add the environment variables listed above, connect a PostgreSQL service through its `DATABASE_URL`, back up any existing production data, and run `pnpm db:migrate` once before accepting orders. Do not set `RUN_STARTUP_MIGRATIONS=true` for routine deploys.
 
 ## Project notes
 
